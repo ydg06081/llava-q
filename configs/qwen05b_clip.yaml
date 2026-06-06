@@ -1,0 +1,23 @@
+model:
+  vision_tower: openai/clip-vit-large-patch14-336
+  language_model: Qwen/Qwen2.5-0.5B-Instruct
+  freeze_vision: true
+  tune_language_model: true
+  projector_type: linear
+
+data:
+  train_jsonl: data/toy/train.jsonl
+  image_root: .
+  prompt_template: "user_image_question"
+
+train:
+  seed: 42
+  batch_size: 1
+  learning_rate: 0.00002
+  projector_learning_rate: 0.001
+  max_steps: 20
+  gradient_accumulation_steps: 1
+
+output:
+  root: outputs
+  checkpoint_dir: checkpoints

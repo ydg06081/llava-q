@@ -1,0 +1,2 @@
+IMAGE_TOKEN = "<image>"
+IGNORE_INDEX = -100

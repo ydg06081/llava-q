@@ -1,0 +1,34 @@
+[project]
+name = "llava-mini-lab"
+version = "0.1.0"
+description = "A small, inspectable LLaVA 1 style training lab."
+requires-python = ">=3.10"
+dependencies = [
+  "accelerate>=1.0.0",
+  "matplotlib>=3.8.0",
+  "pillow>=10.0.0",
+  "pyyaml>=6.0.0",
+  "torch>=2.2.0",
+  "transformers>=4.45.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0",
+  "ruff>=0.6.0",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = [".", "src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
