@@ -11,6 +11,7 @@ outputs/
 checkpoints/
 data/raw/
 data/cache/
+data/toy/
 *.safetensors
 *.bin
 *.pt
