@@ -7,6 +7,21 @@ from pathlib import Path
 from typing import Any
 
 
+def build_demo_trace() -> dict[str, Any]:
+    return {
+        "image": "data/toy/images/red_square.png",
+        "prompt_tokens": ["<|im_start|>", "user", "<image>", "What", "color", "?"],
+        "answer_tokens": ["The", "square", "is", "red", "."],
+        "labels": [-100, -100, -100, -100, -100, -100, 785, 9201, 374, 2513, 13],
+        "shapes": {
+            "pixel_values": [1, 3, 336, 336],
+            "clip_patch_features": [1, 576, 1024],
+            "projected": [1, 576, 896],
+            "spliced_inputs_embeds": [1, 581, 896],
+        },
+    }
+
+
 def render_trace_html(trace: dict[str, Any]) -> str:
     prompt_tokens = trace.get("prompt_tokens", [])
     answer_tokens = trace.get("answer_tokens", [])
@@ -68,11 +83,17 @@ def write_trace_html(trace: dict[str, Any], out_path: str | Path) -> Path:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--trace-json", required=True, help="Path to a trace JSON file.")
+    parser.add_argument("--trace-json", help="Path to a trace JSON file.")
+    parser.add_argument("--demo", action="store_true", help="Render a built-in demonstration trace.")
     parser.add_argument("--out", required=True, help="Output HTML path.")
     args = parser.parse_args()
 
-    trace = json.loads(Path(args.trace_json).read_text(encoding="utf-8"))
+    if args.demo:
+        trace = build_demo_trace()
+    elif args.trace_json:
+        trace = json.loads(Path(args.trace_json).read_text(encoding="utf-8"))
+    else:
+        parser.error("Provide either --demo or --trace-json.")
     path = write_trace_html(trace, args.out)
     print(f"Wrote trace HTML: {path}")
 
