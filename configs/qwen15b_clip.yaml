@@ -1,6 +1,6 @@
 model:
   vision_tower: openai/clip-vit-large-patch14-336
-  language_model: Qwen/Qwen2.5-0.5B-Instruct
+  language_model: Qwen/Qwen2.5-1.5B-Instruct
   freeze_vision: true
   tune_language_model: true
   projector_type: linear

@@ -6,10 +6,8 @@ from pathlib import Path
 
 import torch
 from torch.utils.data import DataLoader
-from transformers import AutoTokenizer
 
 from llava_mini.config import load_config
-from llava_mini.constants import IMAGE_TOKEN
 from llava_mini.data.collator import LlavaCollator
 from llava_mini.data.dataset import JsonlLlavaDataset
 from llava_mini.model.llava_qwen import LlavaQwenForCausalLM
@@ -43,22 +41,15 @@ def run_synthetic_overfit(out_dir: str | Path, steps: int = 20) -> Path:
     return metrics_path
 
 
-def ensure_image_token(tokenizer) -> int:
-    added = tokenizer.add_special_tokens({"additional_special_tokens": [IMAGE_TOKEN]})
-    token_id = tokenizer.convert_tokens_to_ids(IMAGE_TOKEN)
-    if token_id is None or token_id < 0:
-        raise ValueError(f"Tokenizer failed to register {IMAGE_TOKEN}.")
-    return int(added)
-
-
-def run_real_overfit(config_path: str | Path, out_dir: str | Path) -> Path:
+def run_real_overfit(
+    config_path: str | Path,
+    out_dir: str | Path,
+    train_mode: str = "full",
+) -> Path:
+    if train_mode not in ("full", "projector"):
+        raise ValueError(f"`train_mode` must be 'full' or 'projector'; got {train_mode!r}.")
     cfg = load_config(config_path)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    tokenizer = AutoTokenizer.from_pretrained(cfg.model["language_model"])
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-    added_tokens = ensure_image_token(tokenizer)
 
     vision = ClipVisionTower(cfg.model["vision_tower"], freeze=cfg.model.get("freeze_vision", True)).to(
         device
@@ -67,9 +58,11 @@ def run_real_overfit(config_path: str | Path, out_dir: str | Path) -> Path:
         language_model_name=cfg.model["language_model"],
         vision_dim=vision.hidden_size,
     ).to(device)
-    if added_tokens:
-        model.language_model.resize_token_embeddings(len(tokenizer))
-    model.tokenizer = tokenizer
+    # The model owns its tokenizer and keeps `<image>` plus embeddings in sync.
+    tokenizer = model.tokenizer
+    if train_mode == "projector":
+        for param in model.language_model.parameters():
+            param.requires_grad_(False)
 
     collator = LlavaCollator(tokenizer=tokenizer, image_processor=vision.image_processor)
     dataset = JsonlLlavaDataset(cfg.data["train_jsonl"])
@@ -106,7 +99,7 @@ def run_real_overfit(config_path: str | Path, out_dir: str | Path) -> Path:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="configs/qwen05b_clip.yaml")
+    parser.add_argument("--config", default="configs/qwen15b_clip.yaml")
     parser.add_argument("--out", default="outputs/overfit")
     parser.add_argument("--steps", type=int, default=20)
     parser.add_argument("--real", action="store_true", help="Load CLIP/Qwen and run a real one-batch overfit.")
