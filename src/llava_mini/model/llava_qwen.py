@@ -1,12 +1,33 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from typing import Callable
 
 import torch
 from torch import nn
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llava_mini.model.projector import VisionProjector
+from llava_mini.tokenization import ensure_image_token
+
+
+def _splice_rows(
+    values: torch.Tensor,
+    image_positions: list[int],
+    make_block: Callable[[int], torch.Tensor],
+) -> torch.Tensor:
+    """Replace one placeholder slot per row with a row-specific block.
+
+    For each batch row the token at ``image_positions[row]`` is dropped and the
+    tensor returned by ``make_block(row)`` is inserted in its place. Used both to
+    splice image embeddings into the text embeddings and to expand the 1-D
+    label / attention-mask rows to match.
+    """
+    rows = []
+    for batch_idx, position in enumerate(image_positions):
+        before = values[batch_idx, :position]
+        after = values[batch_idx, position + 1 :]
+        rows.append(torch.cat([before, make_block(batch_idx), after], dim=0))
+    return torch.stack(rows, dim=0)
 
 
 def splice_image_embeddings(
@@ -23,28 +44,24 @@ def splice_image_embeddings(
     if len(image_positions) != text_embeds.shape[0]:
         raise ValueError("One image placeholder position is required for each batch row.")
 
-    rows = []
     seq_len = text_embeds.shape[1]
-    for batch_idx, position in enumerate(image_positions):
+    for position in image_positions:
         if position < 0 or position >= seq_len:
             raise ValueError(f"Image position {position} is outside sequence length {seq_len}.")
-        before = text_embeds[batch_idx, :position]
-        after = text_embeds[batch_idx, position + 1 :]
-        rows.append(torch.cat([before, image_embeds[batch_idx], after], dim=0))
-
-    lengths = {row.shape[0] for row in rows}
-    if len(lengths) != 1:
-        raise ValueError("All spliced rows must have the same length before batching.")
-    return torch.stack(rows, dim=0)
+    return _splice_rows(text_embeds, image_positions, lambda batch_idx: image_embeds[batch_idx])
 
 
-@dataclass(frozen=True)
-class MultimodalBatch:
-    input_ids: torch.Tensor
-    attention_mask: torch.Tensor
-    labels: torch.Tensor
-    pixel_values: torch.Tensor
-    image_positions: list[int]
+def expand_for_image_tokens(
+    values: torch.Tensor,
+    image_token_count: int,
+    image_positions: list[int],
+    fill_value: int,
+) -> torch.Tensor:
+    return _splice_rows(
+        values,
+        image_positions,
+        lambda _batch_idx: values.new_full((image_token_count,), fill_value),
+    )
 
 
 class LlavaQwenForCausalLM(nn.Module):
@@ -56,9 +73,22 @@ class LlavaQwenForCausalLM(nn.Module):
     ):
         super().__init__()
         self.tokenizer = AutoTokenizer.from_pretrained(language_model_name)
-        self.language_model = AutoModelForCausalLM.from_pretrained(language_model_name)
+        # Load in float32 so the LM matches the float32 CLIP/projector path; Qwen
+        # ships bfloat16 weights, which would otherwise mismatch at matmul time.
+        self.language_model = AutoModelForCausalLM.from_pretrained(
+            language_model_name, dtype=torch.float32
+        )
+        self.prepare_tokenizer()
         text_dim = int(self.language_model.config.hidden_size)
         self.projector = projector or VisionProjector(vision_dim=vision_dim, text_dim=text_dim)
+
+    def prepare_tokenizer(self) -> None:
+        """Register `<image>` and keep the tokenizer and embeddings in sync."""
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+        added = ensure_image_token(self.tokenizer)
+        if added:
+            self.language_model.resize_token_embeddings(len(self.tokenizer))
 
     @property
     def hidden_size(self) -> int:
@@ -86,16 +116,3 @@ class LlavaQwenForCausalLM(nn.Module):
                 labels, image_embeds.shape[1], image_positions, fill_value=-100
             )
         return self.language_model(**model_kwargs)
-
-
-def expand_for_image_tokens(
-    values: torch.Tensor,
-    image_token_count: int,
-    image_positions: list[int],
-    fill_value: int,
-) -> torch.Tensor:
-    rows = []
-    for batch_idx, position in enumerate(image_positions):
-        fill = values.new_full((image_token_count,), fill_value)
-        rows.append(torch.cat([values[batch_idx, :position], fill, values[batch_idx, position + 1 :]]))
-    return torch.stack(rows, dim=0)

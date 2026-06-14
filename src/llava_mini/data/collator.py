@@ -9,13 +9,14 @@ from PIL import Image
 
 from llava_mini.constants import IGNORE_INDEX, IMAGE_TOKEN
 from llava_mini.data.schema import LlavaRecord, render_prompt
+from llava_mini.tokenization import ensure_image_token
 
 
 def build_labels(input_ids: list[int], answer_start: int) -> list[int]:
     if answer_start < 0 or answer_start > len(input_ids):
         raise ValueError("`answer_start` must be inside the input sequence.")
     return [IGNORE_INDEX] * answer_start + list(input_ids[answer_start:])
-
+#프롬프트 전부를 -100으로 가림.
 
 def find_image_token_position(input_ids: list[int], image_token_id: int) -> int:
     positions = [idx for idx, token_id in enumerate(input_ids) if token_id == image_token_id]
@@ -25,6 +26,7 @@ def find_image_token_position(input_ids: list[int], image_token_id: int) -> int:
         )
     return positions[0]
 
+#이미지 토큰이 하나만 있는지 확인함 아마 하나의 이미지만 고려된듯.
 
 @dataclass(frozen=True)
 class CollatedSampleTrace:
@@ -38,6 +40,11 @@ class CollatedSampleTrace:
 
 class LlavaCollator:
     def __init__(self, tokenizer: Any, image_processor: Any | None = None):
+        # Guarantee `<image>` resolves to a single token id so position-finding works
+        # even when the collator is used standalone (tests, trace rendering). When a
+        # model owns this tokenizer it must also resize its embeddings; see
+        # `LlavaQwenForCausalLM.prepare_tokenizer`.
+        ensure_image_token(tokenizer)
         self.tokenizer = tokenizer
         self.image_processor = image_processor
 
