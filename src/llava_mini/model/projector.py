@@ -18,3 +18,5 @@ class VisionProjector(nn.Module):
                 f"got {tuple(image_features.shape)}."
             )
         return self.proj(image_features)
+#단순하게 vision_dim에서 text_dim으로 선형 변환하는 레이어.
+#image_features는 (batch, patches, vision_dim) 형태의 텐서여야 함.
