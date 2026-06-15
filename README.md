@@ -7,7 +7,7 @@
 ## 기본 모델
 
 - Vision tower: `openai/clip-vit-large-patch14-336`
-- LLM: `Qwen/Qwen2.5-0.5B-Instruct`
+- LLM: `Qwen/Qwen2.5-1.5B-Instruct`
 - Bridge: `VisionProjector`, 기본은 linear projection
 - 기본 학습 감각: 작은 모델 full-parameter 튜닝으로 구조를 먼저 이해하고, 나중에 7B LoRA로 확장
 
@@ -49,12 +49,22 @@ uv run python scripts/prepare_toy_data.py --out data/toy
 
 ```bash
 uv run python -m llava_mini.train.overfit_one_batch \
-  --config configs/qwen05b_clip.yaml \
+  --config configs/qwen15b_clip.yaml \
   --out outputs/real-overfit \
   --real
 ```
 
 첫 실행은 Hugging Face 모델 다운로드 때문에 오래 걸릴 수 있습니다. A5000 8장 환경에서는 이후 `accelerate launch`나 DDP/LoRA 경로를 추가해서 확장하면 됩니다.
+
+학습 대상을 구분해서 돌릴 수도 있습니다.
+
+```bash
+# projector만 학습 (LLM, vision freeze)
+uv run python -m llava_mini.train.train_projector --config configs/qwen15b_clip.yaml --out outputs/train-projector
+
+# projector + LLM full fine-tune (vision freeze)
+uv run python -m llava_mini.train.train_full --config configs/qwen15b_clip.yaml --out outputs/train-full
+```
 
 ## 코드에서 먼저 볼 부분
 
@@ -69,8 +79,32 @@ uv run python -m llava_mini.train.overfit_one_batch \
 현재 버전은 구조 학습용 최소 구현입니다. 다음 단계에서 추가하기 좋은 것은 다음과 같습니다.
 
 - 실제 dataset trace 생성: tokenizer와 CLIP processor 결과를 한 샘플별 JSON/HTML로 저장
-- projector-only training script 분리
 - `accelerate` config와 multi-GPU 실행 명령
 - Qwen full fine-tune와 LoRA/QLoRA config 분리
 - loss curve plot과 generated answer snapshot dashboard
 ```
+
+1. README.md
+     전체 목표와 실행 흐름
+
+2. scripts/prepare_toy_data.py
+     이미지 + 질문 + 답변 데이터셋 만들기
+
+3. src/llava_mini/data/schema.py
+    question을 <image> 포함 prompt로 바꾸기
+
+4. src/llava_mini/data/collator.py
+    tokenization, label masking, <image> token 위치 찾기
+
+5. src/llava_mini/model/projector.py
+    CLIP feature를 LLM hidden size로 변환
+
+6. src/llava_mini/model/llava_qwen.py
+    텍스트 임베딩 안의 <image> 자리를 image patch embeddings로
+    치환
+
+7. src/llava_mini/visualize/sample_trace.py
+    위 과정을 HTML trace로 눈으로 보기
+
+8. src/llava_mini/train/overfit_one_batch.py
+    실제 loss가 계산되고 학습되는 루프 보기

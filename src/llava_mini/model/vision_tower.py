@@ -29,5 +29,6 @@ class ClipVisionTower(nn.Module):
 
     def encode_images(self, pixel_values: torch.Tensor) -> torch.Tensor:
         outputs = self.vision_model(pixel_values=pixel_values, output_hidden_states=True)
-        # Drop CLS token so each remaining token corresponds to an image patch.
-        return outputs.last_hidden_state[:, 1:, :]
+        # LLaVA selects the penultimate (second-to-last) hidden layer, then drops the
+        # CLS token so each remaining token corresponds to an image patch.
+        return outputs.hidden_states[-2][:, 1:, :]
